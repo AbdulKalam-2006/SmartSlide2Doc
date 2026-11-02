@@ -1,14 +1,8 @@
-from typing import List
+﻿from typing import List
 from core.models import SlideElement, LayoutRow, AnalyzedSlide
 
 class SpatialLayoutAnalyzer:
-    """
-    Analyzes slide element coordinates to:
-    1. Determine optimal page orientation ('portrait' vs 'landscape').
-    2. Automatically group side-by-side elements into 2-column rows.
-    """
     def __init__(self, orientation_policy: str = "both"):
-        # 'both' (auto-switch), 'portrait', or 'landscape'
         self.orientation_policy = orientation_policy.lower()
 
     def analyze_presentation(self, raw_slides: List[List[SlideElement]]) -> List[AnalyzedSlide]:
@@ -31,9 +25,7 @@ class SpatialLayoutAnalyzer:
             else:
                 body_elements.append(el)
 
-        # Sort top-to-bottom, then left-to-right
         body_elements.sort(key=lambda e: (round(e.top_ratio, 2), round(e.left_ratio, 2)))
-
         orientation = self._decide_orientation(body_elements)
         rows = self._cluster_into_rows(body_elements)
 
@@ -49,23 +41,20 @@ class SpatialLayoutAnalyzer:
             return self.orientation_policy
 
         for el in elements:
-            # Criterion 1: Wide data table (>= 6 columns)
             if el.element_type in ("table", "chart") and el.table_data:
                 num_cols = max(len(r) for r in el.table_data)
                 if num_cols >= 6:
                     return "landscape"
 
-            # Criterion 2: Ultra-wide panoramic diagram/chart taking >=80% slide width
             if el.element_type == "image" and el.image_size_px:
                 w_px, h_px = el.image_size_px
                 aspect = w_px / max(1, h_px)
-                if el.width_ratio >= 0.80 and aspect >= 2.2:
+                if w_px >= 1800 and el.width_ratio >= 0.90 and aspect >= 2.8:
                     return "landscape"
 
         return "portrait"
 
     def _cluster_into_rows(self, elements: List[SlideElement]) -> List[LayoutRow]:
-        """Pairs left-column and right-column elements when they overlap vertically."""
         rows: List[LayoutRow] = []
         used = [False] * len(elements)
 
@@ -86,7 +75,6 @@ class SpatialLayoutAnalyzer:
                         continue
 
                     b_center_x = el_b.left_ratio + (el_b.width_ratio / 2.0)
-
                     opposite_halves = (
                         (a_center_x < 0.52 and b_center_x >= 0.48) or
                         (b_center_x < 0.52 and a_center_x >= 0.48)

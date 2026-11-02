@@ -1,4 +1,4 @@
-import io
+﻿import io
 from typing import List, Optional
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
@@ -32,6 +32,19 @@ class PPTXExtractor:
             all_slides_elements.append(elements)
         return all_slides_elements
 
+    @staticmethod
+    def _try_get_image_blob(shape) -> Optional[bytes]:
+        """
+        Extracts binary image data whether the shape is a standard PICTURE (13),
+        a Picture/Content PLACEHOLDER (14), or a picture-filled shape.
+        """
+        try:
+            if hasattr(shape, "image") and shape.image is not None:
+                return shape.image.blob
+        except Exception:
+            pass
+        return None
+
     def _extract_shape(self, shape, title_shape, elements: List[SlideElement], offset_x=0.0, offset_y=0.0):
         # 1. Unpack grouped shapes recursively
         if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
@@ -44,7 +57,7 @@ class PPTXExtractor:
         width_r = max(0.05, float(getattr(shape, "width", 0)) / self.slide_w)
         height_r = max(0.05, float(getattr(shape, "height", 0)) / self.slide_h)
 
-        # 2. Extract Native Vector Charts (Render to high-DPI PNG + Editable Data Table)
+        # 2. Extract Native Vector Charts
         if getattr(shape, "has_chart", False) and self.render_charts:
             png_bytes, px_size, chart_table, chart_title = VectorChartAndSmartArtRenderer.extract_chart(shape)
             if png_bytes or chart_table:
@@ -59,7 +72,7 @@ class PPTXExtractor:
                 ))
                 return
 
-        # 3. Extract SmartArt Diagrams (<dgm:relIds> inside Graphic Frames)
+        # 3. Extract SmartArt Diagrams
         smartart_paras = VectorChartAndSmartArtRenderer.extract_smartart_paragraphs(shape)
         if smartart_paras:
             elements.append(SlideElement(
@@ -84,12 +97,12 @@ class PPTXExtractor:
                     width_ratio=width_r, height_ratio=height_r,
                     table_data=table_matrix
                 ))
-            return
+                return
 
-        # 5. Extract Pictures (+ Optional OCR for Searchable Text)
-        if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
+        # 5. Extract Pictures (Works for BOTH MSO_SHAPE_TYPE.PICTURE and PLACEHOLDER images!)
+        img_bytes = self._try_get_image_blob(shape)
+        if img_bytes is not None:
             try:
-                img_bytes = shape.image.blob
                 with Image.open(io.BytesIO(img_bytes)) as img:
                     if img.format not in ["PNG", "JPEG", "GIF", "BMP"]:
                         buf = io.BytesIO()
@@ -106,9 +119,9 @@ class PPTXExtractor:
                     image_size_px=px_size,
                     ocr_text=ocr_extracted
                 ))
+                return
             except Exception:
                 pass
-            return
 
         # 6. Extract Standard Text Frames
         if getattr(shape, "has_text_frame", False):
